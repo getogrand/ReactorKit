@@ -66,6 +66,8 @@ public protocol Reactor: class {
   /// Transforms the state stream. Use this function to perform side-effects such as logging. This
   /// method is called once after the state stream is created.
   func transform(state: Observable<State>) -> Observable<State>
+  
+  func feedback(for currentState: State, prevState: State) -> [Action]
 }
 
 
@@ -130,14 +132,14 @@ extension Reactor {
 
   public func createStateStream() -> Observable<State> {
     let action = self._action.observeOn(self.scheduler)
-    let transformedAction = self.transform(action: action)
+    let transformedAction = self.transform(action: action.observeOn(self.scheduler))
     let mutation = transformedAction
       .flatMap { [weak self] action -> Observable<Mutation> in
         guard let `self` = self else { return .empty() }
         return self.mutate(action: action).catchError { _ in .empty() }
       }
     let transformedMutation = self.transform(mutation: mutation)
-    let state = transformedMutation         
+    let state = transformedMutation
       .scan(self.initialState) { [weak self] state, mutation -> State in
         guard let `self` = self else { return state }
         return self.reduce(state: state, mutation: mutation)
@@ -149,7 +151,23 @@ extension Reactor {
         self?.currentState = state
       })
       .replay(1)
+    let feedbackAction = transformedState.pairwise()
+      .map { [weak self] prevState, currentState -> [Action] in
+        guard let self = self else { return [] }
+        return self.feedback(for: currentState, prevState: prevState)
+      }
+    // The order of actions does not matter, so just use async main scheduler
+    feedbackAction
+      .observeOn(MainScheduler.asyncInstance)
+      .subscribe(onNext: { [weak self] actions in
+        for action in actions {
+          self?._action.onNext(action)
+        }
+      })
+      .disposed(by: disposeBag)
+
     transformedState.connect().disposed(by: self.disposeBag)
+
     return transformedState
   }
 
@@ -171,6 +189,10 @@ extension Reactor {
 
   public func transform(state: Observable<State>) -> Observable<State> {
     return state
+  }
+
+  public func feedback(for currentState: State, prevState: State) -> [Action] {
+    return []
   }
 }
 

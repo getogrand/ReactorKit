@@ -12,9 +12,19 @@ final class ReactorTests: XCTestCase {
       .next(100, ["action"]),
     ])
     test.assert(reactor.state) { events in
-      XCTAssertEqual(events.elements.count, 2)
+      XCTAssertEqual(events.elements.count, 3)
       XCTAssertEqual(events.elements[0], ["transformedState"]) // initial state
       XCTAssertEqual(events.elements[1], ["action", "transformedAction", "mutation", "transformedMutation", "reduce", "transformedState"])
+      XCTAssertEqual(events.elements[2], [
+        "action", "transformedAction", "mutation", "transformedMutation", "reduce",
+        "feedbackAction", "transformedAction", "mutation", "transformedMutation", "reduce",
+        "transformedState"
+      ])
+    }
+    test.assert(reactor.action) { events in
+      XCTAssertEqual(events.elements.count, 2)
+      XCTAssertEqual(events.elements[0], ["action"])
+      XCTAssertEqual(events.elements[1], ["feedbackAction"])
     }
   }
 
@@ -339,6 +349,14 @@ private final class TestReactor: Reactor {
   // 5. ["action", "transformedAction", "mutation", "transformedMutation", "reduce"] + ["transformedState"]
   func transform(state: Observable<State>) -> Observable<State> {
     return state.map { $0 + ["transformedState"] }
+  }
+    
+  func feedback(for currentState: State, prevState: State) -> [Action] {
+    if currentState == ["action", "transformedAction", "mutation", "transformedMutation", "reduce"] + ["transformedState"] {
+      return [["feedbackAction"]]
+    } else {
+      return []
+    }
   }
 }
 
